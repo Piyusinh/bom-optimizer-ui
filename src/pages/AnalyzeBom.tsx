@@ -167,7 +167,7 @@ export const AnalyzeBom: React.FC = () => {
           </details>
 
           <div>
-            <button type="submit" disabled={analyzing || !form.material} className="btn-primary">
+            <button type="submit" disabled={analyzing || !form.material || !form.plant} className="btn-primary">
               {analyzing ? 'Analyzing...' : 'Run Analysis'}
             </button>
             <p className="text-xs text-gray-400 mt-2">

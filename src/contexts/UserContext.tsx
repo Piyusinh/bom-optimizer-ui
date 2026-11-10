@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-hot-toast';
 import type { UserInfo, LoginResponse } from '@/types/auth';
-import { loginApi, fetchUserInfo } from '@/services/authApi';
+import { loginApi, fetchUserInfo, refreshApi, logoutApi } from '@/services/authApi';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'bom_access_token';
+const TOKEN_EXPIRES_KEY = 'bom_token_expires';
 const USER_KEY = 'bom_user';
-const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-const IDLE_WARNING_MS = 2 * 60 * 1000; // show warning 2 min before logout
+const REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000; // refresh 5 min before expiry
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // logout after 30 min idle
+const IDLE_WARNING_MS = 15 * 60 * 1000; // warn at 15 min idle
 const AUTH_ERROR_EVENT = 'bom:auth-error';
 
 // ─── Context Shape ───────────────────────────────────────────────────────────
@@ -25,6 +28,7 @@ interface UserContextValue {
   clearError: () => void;
   hasPageAccess: (path: string) => boolean;
   getToken: () => string | null;
+  refreshUser: () => Promise<void>;
 }
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
@@ -40,11 +44,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Token helpers ───────────────────────────────────────────────────────
 
   const getToken = useCallback((): string | null => {
     return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+  }, []);
+
+  const isRemembered = useCallback((): boolean => {
+    return localStorage.getItem(TOKEN_KEY) !== null;
   }, []);
 
   const setToken = useCallback((token: string, remember: boolean) => {
@@ -55,12 +64,61 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const setTokenExpiry = useCallback((expiresAt: string, remember: boolean) => {
+    if (remember) {
+      localStorage.setItem(TOKEN_EXPIRES_KEY, expiresAt);
+    } else {
+      sessionStorage.setItem(TOKEN_EXPIRES_KEY, expiresAt);
+    }
+  }, []);
+
   const clearToken = useCallback(() => {
     sessionStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_EXPIRES_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_KEY);
     sessionStorage.removeItem(USER_KEY);
     localStorage.removeItem(USER_KEY);
+    if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    tokenRefreshTimerRef.current = null;
   }, []);
+
+  // ─── Token refresh ───────────────────────────────────────────────────────
+
+  const doRefresh = useCallback(async () => {
+    const res: LoginResponse = await refreshApi();
+    const remember = isRemembered();
+    setToken(res.access_token, remember);
+    setTokenExpiry(res.expires_at, remember);
+    setUser(res.user);
+    return res.expires_at;
+  }, [isRemembered, setToken, setTokenExpiry, setUser]);
+
+  const scheduleTokenRefresh = useCallback((expiresAt: string) => {
+    const msUntilRefresh = new Date(expiresAt).getTime() - Date.now() - REFRESH_BEFORE_EXPIRY_MS;
+    if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    tokenRefreshTimerRef.current = setTimeout(async () => {
+      try {
+        const nextExpiresAt = await doRefresh();
+        scheduleTokenRefresh(nextExpiresAt);
+      } catch {
+        clearToken();
+        broadcastAuthError();
+      }
+    }, Math.max(msUntilRefresh, 0));
+  }, [doRefresh, clearToken]);
+
+  const refreshUser = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const userInfo = await fetchUserInfo(token);
+      setUser(userInfo);
+    } catch {
+      clearToken();
+      broadcastAuthError();
+    }
+  }, [getToken, setUser, clearToken]);
 
   // ─── Idle timeout ────────────────────────────────────────────────────────
 
@@ -84,8 +142,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!user) return;
 
-    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
-    const handler = () => resetIdleTimer();
+    const events = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
+    // mousemove fires continuously while the pointer moves — throttle so we
+    // don't reset two timers on every pixel of movement.
+    let lastReset = 0;
+    const handler = () => {
+      const now = Date.now();
+      if (now - lastReset > 5000) {
+        lastReset = now;
+        resetIdleTimer();
+      }
+    };
 
     events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
     resetIdleTimer();
@@ -108,6 +175,27 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener(AUTH_ERROR_EVENT, handler);
   }, [clearToken]);
 
+  // ─── Global runtime error catchers ───────────────────────────────────────
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      toast.error('An unexpected error occurred. Please reload the page.');
+      // eslint-disable-next-line no-console
+      console.error('Global error:', event.error);
+    };
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      toast.error('An unexpected async error occurred. Please reload the page.');
+      // eslint-disable-next-line no-console
+      console.error('Unhandled rejection:', event.reason);
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onUnhandled);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onUnhandled);
+    };
+  }, []);
+
   // ─── Restore session on mount ────────────────────────────────────────────
 
   useEffect(() => {
@@ -118,8 +206,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
       try {
-        const userInfo = await fetchUserInfo(token);
-        setUser(userInfo);
+        const res = await refreshApi();
+        const remember = isRemembered();
+        setToken(res.access_token, remember);
+        setTokenExpiry(res.expires_at, remember);
+        setUser(res.user);
+        scheduleTokenRefresh(res.expires_at);
       } catch {
         clearToken();
       } finally {
@@ -127,7 +219,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
     restore();
-  }, [getToken, clearToken]);
+  }, [getToken, isRemembered, setToken, setTokenExpiry, setUser, clearToken, scheduleTokenRefresh]);
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
@@ -137,7 +229,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res: LoginResponse = await loginApi(email, password);
       setToken(res.access_token, rememberMe);
+      setTokenExpiry(res.expires_at, rememberMe);
       setUser(res.user);
+      scheduleTokenRefresh(res.expires_at);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
@@ -148,12 +242,18 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = useCallback(() => {
+    // Revoke the JWT server-side FIRST — the request interceptor reads the
+    // token from storage, so this must run before clearToken(). Fire-and-
+    // forget: logout must stay instant even if the request fails.
+    if (getToken()) {
+      logoutApi().catch(() => undefined);
+    }
     setUser(null);
     clearToken();
     setShowIdleWarning(false);
     if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-  }, [clearToken]);
+  }, [clearToken, getToken]);
 
   const stayLoggedIn = () => {
     setShowIdleWarning(false);
@@ -164,8 +264,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPageAccess = (path: string): boolean => {
     if (!user) return false;
-    if (path === '/guide' || path === '/architecture') return true; // documentation pages, visible to every authenticated role
-    if (user.role === 'admin') return true;
+    if (user.is_super_admin) return true;
     return user.allowed_pages.includes(path);
   };
 
@@ -186,6 +285,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clearError,
         hasPageAccess,
         getToken,
+        refreshUser,
       }}
     >
       {children}

@@ -46,8 +46,8 @@ export const Architecture: React.FC = () => {
               <tbody>
                 <tr>
                   <Td mono>/login</Td>
-                  <Td>Mock JWT auth (Phase 0 stand-in for Entra ID). 5 demo roles with different page access.</Td>
-                  <Td mono>POST /api/auth/login</Td>
+                  <Td>Real JWT auth backed by the DB — 6 seeded users, role-based page access, token refresh/revocation, rate-limited login.</Td>
+                  <Td mono>POST /api/auth/login<br/>POST /api/auth/refresh<br/>POST /api/auth/logout<br/>GET /api/auth/me</Td>
                 </tr>
                 <tr>
                   <Td mono>/ (Dashboard)</Td>

@@ -30,7 +30,7 @@ export const Dashboard: React.FC = () => {
           <div className="card">
             <p className="text-red-600 text-sm">{error}</p>
             <p className="text-gray-500 text-xs mt-2">
-              Make sure the API is running on http://localhost:8000
+              Make sure the API server is running and reachable.
             </p>
           </div>
         ) : stats ? (

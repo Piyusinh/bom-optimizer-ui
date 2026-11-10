@@ -3,7 +3,7 @@ import { PageLayout } from '@/components/layout/PageLayout';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useApiMutation } from '@/hooks/useApiMutation';
 import { useApiQuery } from '@/hooks/useApiQuery';
-import { uploadFile, generateDemoData, fetchStats } from '@/services/api';
+import { uploadFile, generateDemoData, generateMasterData, fetchStats } from '@/services/api';
 import type { IngestResponse, DashboardStats } from '@/types';
 
 /** How many times each action has been run this session, and its last outcome. */
@@ -26,6 +26,7 @@ const inferTypeFromName = (name: string): string => {
 
 export const DataManagement: React.FC = () => {
   const [demoLog, setDemoLog] = useState<RunLog>(emptyLog);
+  const [masterCounts, setMasterCounts] = useState<Record<string, number> | null>(null);
 
   // Live database counts — refetched after every ingestion action, so it's
   // always visible WHERE the data went and HOW MUCH is there right now.
@@ -38,6 +39,16 @@ export const DataManagement: React.FC = () => {
     {
       onSuccess: (res) => {
         setDemoLog((prev) => ({ count: prev.count + 1, lastAt: new Date().toLocaleTimeString(), lastResults: res.results }));
+        refetchStats();
+      },
+    }
+  );
+
+  const { mutate: runGenerateMaster, loading: generatingMaster, error: masterError } = useApiMutation<void, { status: string; created: Record<string, number> }>(
+    () => generateMasterData(),
+    {
+      onSuccess: (res) => {
+        setMasterCounts(res.created);
         refetchStats();
       },
     }
@@ -184,6 +195,55 @@ export const DataManagement: React.FC = () => {
               ))}
               <p className="text-xs text-gray-400 mt-2">
                 Now go to Analyze BOM and try material <code className="bg-gray-100 px-1 rounded">DEMO-F001</code> at plant <code className="bg-gray-100 px-1 rounded">1000</code> or <code className="bg-gray-100 px-1 rounded">2000</code>.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Step 2 — master data. Without this the Production Persona has no
+            cost, no recipe and no reprocess history to rank on. */}
+        <div className="card border-l-4 border-l-indigo-400">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            Generate Master Data (required for Production Persona)
+          </h3>
+          <p className="text-sm text-gray-500 mb-1">
+            BOM data alone only tells us <em>which components</em> were used. To rank paths by
+            cost and reprocess cycles we also need material master (cost, stock, lead time),
+            production versions, recipes with operations, goods movements and rework links.
+            This derives all of them from the BOM data already loaded above.
+          </p>
+          <p className="text-xs text-gray-400 mb-4">
+            Generation is seeded from the material number, so it is fully deterministic —
+            re-running it produces identical master data. Run this <strong>after</strong>{' '}
+            loading BOM data; each run replaces the previous master data rather than adding to it.
+          </p>
+          <button
+            onClick={() => runGenerateMaster(undefined as unknown as void)}
+            disabled={generatingMaster}
+            className="btn-primary"
+          >
+            {generatingMaster ? 'Generating...' : 'Generate Master Data'}
+          </button>
+
+          {generatingMaster && <LoadingSpinner size="sm" />}
+          {masterError && <p className="mt-3 text-sm text-red-600">✗ {masterError}</p>}
+
+          {masterCounts && (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">Created:</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {Object.entries(masterCounts).map(([key, value]) => (
+                  <Stat
+                    key={key}
+                    label={key.replace(/_/g, ' ')}
+                    value={value}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-3">
+                Now open <strong>Production Persona</strong>, pick plant{' '}
+                <code className="bg-gray-100 px-1 rounded">1000</code> and material{' '}
+                <code className="bg-gray-100 px-1 rounded">DEMO-F001</code>.
               </p>
             </div>
           )}

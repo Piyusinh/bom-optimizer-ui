@@ -133,13 +133,15 @@ export const LoginPage: React.FC = () => {
 
           {/* Demo credentials */}
           <div className="mt-6 pt-5 border-t border-gray-100">
-            <p className="text-xs font-medium text-gray-500 mb-2">Phase 0 Demo Accounts:</p>
+            <p className="text-xs font-medium text-gray-500 mb-2">Demo Accounts:</p>
             <div className="grid grid-cols-1 gap-1 text-xs text-gray-500">
+              <span><strong className="text-gray-700">Super Admin:</strong> superadmin@bom.local / SuperAdmin@123</span>
               <span><strong className="text-gray-700">Admin:</strong> admin@bom.local / Admin@123</span>
               <span><strong className="text-gray-700">Planner:</strong> planner@bom.local / Planner@123</span>
               <span><strong className="text-gray-700">Procurement:</strong> procurement@bom.local / Procure@123</span>
               <span><strong className="text-gray-700">Sales:</strong> sales@bom.local / Sales@123</span>
               <span><strong className="text-gray-700">Supply Chain:</strong> supplychain@bom.local / Supply@123</span>
+              <span><strong className="text-gray-700">R&D:</strong> rnd@bom.local / RnD@123</span>
             </div>
           </div>
         </div>

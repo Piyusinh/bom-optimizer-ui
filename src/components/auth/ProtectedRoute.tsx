@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '@/contexts/UserContext';
 
@@ -8,8 +8,14 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredPage }) => {
-  const { isAuthenticated, isLoading, hasPageAccess } = useUser();
+  const { isAuthenticated, isLoading, hasPageAccess, refreshUser } = useUser();
   const location = useLocation();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshUser();
+    }
+  }, [location.pathname, location.search, isAuthenticated, refreshUser]);
 
   if (isLoading) {
     return (

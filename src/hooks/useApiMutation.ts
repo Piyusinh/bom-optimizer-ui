@@ -19,7 +19,11 @@ export function useApiMutation<TArgs, TResult = void>(
         const message = err instanceof Error ? err.message : 'Action failed';
         setError(message);
         options.onError?.(err);
-        throw err;
+        // Deliberately NOT rethrowing: `error` state + onError callback are
+        // the contract. Callers `await mutate(...)` without try/catch, so a
+        // rethrow becomes an unhandled rejection and the global listener
+        // shows a generic toast on top of the real error.
+        return undefined;
       } finally {
         setLoading(false);
       }
