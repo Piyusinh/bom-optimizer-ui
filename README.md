@@ -4,15 +4,15 @@ Enterprise AI Decision Platform for Manufacturing — React Frontend
 
 ## Quick Start
 
-```bash
-# Install dependencies
-npm install
+Requires **Node 18+** (tested with Node 24). Start the API first (repo `bom-optimizer-api`, `python run.py`, http://127.0.0.1:8001).
 
-# Run dev server (proxies API calls to localhost:8000)
-npm run dev
+```bash
+npm ci            # or npm install
+npm run dev       # http://localhost:5173, proxies /api and /health to http://localhost:8001
+npm run build     # type-check + production build into dist/
 ```
 
-UI available at **http://localhost:5173**
+Demo logins are shown on the login page (for example superadmin@bom.local).
 
 ## Pages
 
